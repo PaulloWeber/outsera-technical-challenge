@@ -357,16 +357,142 @@ de *Atenção* da especificação torna obrigatórios: empates múltiplos retorn
 completo, e ausência de vencedores repetidos respondida com listas vazias em vez
 de erro.
 
+
+## Fase 8 — Auditoria de conformidade e correções
+
+### Prompt
+
+> Faça uma análise geral do projeto, com calma e em detalhe, e verifique se ele
+> atende ao que é pedido no PDF do desafio técnico.
+
+### Método
+
+Cada requisito foi conferido contra o código, e não de memória. Para os pontos
+que dependem de comportamento em execução, a aplicação foi levantada e sondada
+com conjuntos de dados construídos para forçar casos-limite — a especificação
+avisa que outros conjuntos serão usados na avaliação.
+
+Seis situações foram exercitadas com a aplicação no ar e responderam
+corretamente: coluna de produtores vazia, linha com apenas quatro campos, fim de
+linha Windows (CRLF), BOM UTF-8, conjunto com um único intervalo (que aparece em
+`min` e `max`) e empates múltiplos.
+
+Três achados surgiram. Os dois primeiros foram corrigidos; o terceiro foi
+mantido de forma deliberada.
+
+---
+
+### Prompt de correção
+
+> Trate os pontos pendentes e faça as correções, ajuste os testes necessários e
+> valide se está tudo funcionando como deveria.
+
+---
+
+### Achado 1 — Campos entre aspas corrompiam a linha em silêncio
+
+O parser fazia `line.split(";", -1)`, sem tratar aspas. Uma linha exportada de
+planilha quebrava por completo:
+
+```
+2000;"Filme; com ponto-e-virgula";S;Ana;yes
+```
+
+O título virava `"Filme`, o estúdio virava ` com ponto-e-virgula"`, e **o nome do
+estúdio era lido como produtor**. O filme deixava de contar como vencedor porque
+o nome do produtor caía na coluna `winner`. Pior: a resposta era `200`, com dados
+incorretos, em vez de `400`.
+
+**Correção.** Um método `splitRow` passou a percorrer a linha caractere a
+caractere honrando o RFC 4180: um campo entre aspas pode conter o separador, e
+`""` dentro dele representa uma aspa literal. Uma linha com aspas nunca fechadas
+é rejeitada com `Line N: unterminated quoted field`, em vez de ser dividida no
+meio do valor. A validação do cabeçalho passa pelo mesmo caminho, cobrindo também
+cabeçalhos citados.
+
+Linhas simples — o formato do arquivo fornecido — seguem o mesmo caminho e não
+mudam de comportamento.
+
+---
+
+### Achado 2 — Regex de produtores degradado para espaço literal
+
+Comparando o código com o histórico, o separador de produtores estava escrito
+`",\s*and\s+|,\s*|\s+and\s+"`. Em Java 15 e posteriores, `\s` em literal de
+string é o **escape de espaço**, e não a classe de espaços em branco. O padrão
+compilado era, na prática, `", *and +|, *| +and +"`.
+
+O efeito passava despercebido porque o arquivo fornecido separa créditos por
+espaços comuns — a suíte inteira ficava verde. Mas tabulações ou outros espaços
+não seriam reconhecidos, e a divisão de produtores falharia silenciosamente.
+
+Um detalhe reforçou o diagnóstico: o teste de recálculo independente usava
+`"\s"`, a forma correta. Produção e verificação estavam com padrões diferentes —
+exatamente a divergência que aquele teste existe para expor.
+
+**Correção.** O padrão voltou a `"\s"`. Produção e teste passaram a usar
+expressões idênticas, confirmado por comparação direta das duas linhas.
+
+---
+
+### Achado 3 — Duas vitórias no mesmo ano produzem intervalo zero
+
+Quando um produtor é creditado em dois filmes vencedores do mesmo ano, o
+resultado é `{"producer":"Ana","interval":0,"previousWin":1990,"followingWin":1990}`,
+e esse zero passa a ser o menor intervalo.
+
+A especificação não cobre o caso. Duas leituras são defensáveis: zero é um
+intervalo válido entre prêmios consecutivos, ou duas premiações na mesma edição
+não caracterizam "obter dois prêmios mais rápido".
+
+**Decisão: manter o comportamento.** O arquivo fornecido tem três anos com dois
+vencedores (1986, 1990 e 2015), e a leitura literal — agrupar por produtor,
+ordenar os anos, parear consecutivos — é a que qualquer implementação direta
+produz. Alterá-la aumentaria a chance de divergir do resultado esperado, em vez
+de reduzi-la.
+
+O que mudou foi o **estatuto** da decisão: era um acidente da implementação,
+passou a ser escolha declarada, fixada por teste
+(`reportsAZeroIntervalWhenAProducerWinsTwiceInOneYear`) e registrada no README.
+
+---
+
+### Testes acrescentados
+
+| Teste | Cobre |
+|---|---|
+| `readsQuotedFieldsThatContainTheSeparator` | Ponto-e-vírgula dentro de aspas e aspas escapadas `""` |
+| `refusesARowWhoseQuotedFieldIsNeverClosed` | Aspas não fechadas → `400`, dados preservados |
+| `reportsAZeroIntervalWhenAProducerWinsTwiceInOneYear` | Fixa a decisão do achado 3 |
+
+A suíte passou de 19 para **22 testes de integração**, todos verdes.
+
+### Validação final
+
+Com a aplicação em execução, os quatro cenários que motivaram as correções foram
+confirmados:
+
+| Cenário | Antes | Depois |
+|---|---|---|
+| `;` dentro de campo citado | 2 produtores errados, 1 vencedor perdido | 1 produtor correto, 2 vencedores |
+| Aspas escapadas `""` | linha corrompida | estúdio lido corretamente |
+| Aspas não fechadas | dados errados com `200` | `400 unterminated quoted field` |
+| Produtores separados por tabulação | não dividia | 2 produtores |
+
+O arquivo original continua produzindo exatamente os mesmos números na carga —
+`206 movies (42 winners, 359 distinct producers)` — confirmando que nenhuma
+correção alterou o resultado do conjunto de dados fornecido.
+
 ---
 
 ## Suíte automatizada
 
-19 testes de integração, todos passando:
+22 testes de integração, todos passando:
 
 | Classe | Testes | Cobre |
 |---|---:|---|
+| `CsvUploadIntegrationTest` | 10 | Upload válido, empates, ninguém repetindo, 4 rejeições, campos citados, aspas não fechadas, vitória dupla no mesmo ano |
 | `SecurityIntegrationTest` | 8 | Token, credencial errada, `401`, `403`, paridade entre rotas |
-| `CsvUploadIntegrationTest` | 7 | Upload válido, empates, ninguém repetindo, 4 rejeições |
 | `AwardIntervalsIntegrationTest` | 3 | Contrato JSON, valores esperados, recálculo independente |
 | `GoldenRaspberryApiApplicationTests` | 1 | Contexto sobe |
 
@@ -375,3 +501,7 @@ ele recalcula a resposta a partir do CSV por um caminho deliberadamente
 diferente — ordenando as vitórias por `(produtor, ano)` e percorrendo a lista uma
 vez — e compara com o que a API devolveu. Se o cálculo de produção derivar, o
 teste acusa mesmo que os valores esperados tenham sido atualizados junto.
+
+Foi a existência desse caminho paralelo que tornou o achado 2 diagnosticável: ao
+comparar as duas expressões regulares, a divergência entre produção e verificação
+ficou visível.

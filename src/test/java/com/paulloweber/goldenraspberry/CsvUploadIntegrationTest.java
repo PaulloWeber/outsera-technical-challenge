@@ -82,6 +82,71 @@ class CsvUploadIntegrationTest extends IntegrationTestSupport {
     }
 
     /**
+     * A spreadsheet export wraps fields in quotes so a value may contain the separator.
+     * The row below carries a semicolon inside the title and a doubled quote inside the
+     * studio; splitting naively would shift every later column by one and silently credit
+     * the studio as a producer.
+     */
+    @Test
+    @DirtiesContext
+    void readsQuotedFieldsThatContainTheSeparator() {
+        String csv = """
+                year;title;studios;producers;winner
+                2000;"Trouble; The Sequel";"The ""Big"" Studio";Producer X;yes
+                2002;Plain Title;Studio;Producer X;yes
+                """;
+
+        assertThat(uploadAsAdmin("quoted.csv", csv).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        AwardIntervalsResponse intervals = currentIntervals();
+        assertThat(intervals.min()).containsExactly(
+                new ProducerAwardInterval("Producer X", 2, 2000, 2002));
+    }
+
+    /** A quoted field that never closes is rejected instead of being split mid-value. */
+    @Test
+    void refusesARowWhoseQuotedFieldIsNeverClosed() {
+        String csv = """
+                year;title;studios;producers;winner
+                2000;"Never closed;Studio;Producer X;yes
+                """;
+
+        ResponseEntity<String> upload = uploadAsAdmin("broken.csv", csv);
+
+        assertThat(upload.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(upload.getBody()).contains("Line 2").contains("unterminated quoted field");
+
+        assertBundledDatasetStillServed();
+    }
+
+    /**
+     * Two winning films in the same year are a real occurrence in the source data — 1986,
+     * 1990 and 2015 each have two. When one producer is credited on both, the gap between
+     * those wins is zero, and zero is reported as the shortest interval.
+     *
+     * <p>The specification does not cover this case. Pinning it here makes the reading a
+     * deliberate decision rather than an accident of the implementation.
+     */
+    @Test
+    @DirtiesContext
+    void reportsAZeroIntervalWhenAProducerWinsTwiceInOneYear() {
+        String csv = movieList()
+                .winner(1990, "Both In One Year A", "Ana")
+                .winner(1990, "Both In One Year B", "Ana")
+                .winner(1995, "Spread Out A", "Bruno")
+                .winner(2005, "Spread Out B", "Bruno")
+                .render();
+
+        assertThat(uploadAsAdmin("same-year.csv", csv).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        AwardIntervalsResponse intervals = currentIntervals();
+        assertThat(intervals.min()).containsExactly(
+                new ProducerAwardInterval("Ana", 0, 1990, 1990));
+        assertThat(intervals.max()).containsExactly(
+                new ProducerAwardInterval("Bruno", 10, 1995, 2005));
+    }
+
+    /**
      * Every rejection has to behave the same way: 400, an explanation naming the problem,
      * and the previously loaded dataset left exactly as it was.
      */

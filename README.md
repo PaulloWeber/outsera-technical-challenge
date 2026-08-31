@@ -10,7 +10,7 @@ showcase: the business rule sits at the centre, knowing nothing about Spring, JP
 | **Stack** | Java 21 · Spring Boot 4.0.7 · Spring Data JPA · Spring Security · H2 (in-memory) |
 | **Build** | Maven Wrapper — nothing to install |
 | **Database** | Embedded, in memory, seeded from CSV at startup. No external service |
-| **Tests** | 19 integration tests, no unit tests, no mocks |
+| **Tests** | 22 integration tests, no unit tests, no mocks |
 | **Third-party libraries** | None beyond Spring itself |
 | **How it was built** | Recorded phase by phase in [`docs/ai-log.md`](docs/ai-log.md) |
 
@@ -208,13 +208,13 @@ All nine scenarios — tokens, reads, imports, failures — are runnable from
 ./mvnw test                # or: docker build --target test .
 ```
 
-19 integration tests, as required by item 4.2. Every one boots the full application on a random
+22 integration tests, as required by item 4.2. Every one boots the full application on a random
 port and speaks real HTTP. No `@MockBean`, no `@WebMvcTest`.
 
 | Class | Tests | Covers |
 |---|---:|---|
 | `SecurityIntegrationTest` | 8 | Token issuing, wrong password, 401 without and with a forged token, 403 without `ADMIN`, payload parity between the open and protected routes |
-| `CsvUploadIntegrationTest` | 7 | Valid upload, tied producers, nobody repeating, and four parameterised rejection scenarios |
+| `CsvUploadIntegrationTest` | 10 | Valid upload, tied producers, nobody repeating, and four parameterised rejection scenarios |
 | `AwardIntervalsIntegrationTest` | 3 | JSON contract, expected values, independent recalculation |
 | `GoldenRaspberryApiApplicationTests` | 1 | Context loads |
 
@@ -279,6 +279,8 @@ user `sa`, empty password.
 | Separate domain records and JPA entities | Persistence never leaks inwards | A mapping step, and two classes where one would do |
 | Ports declared in `application`, not next to their implementations | Whoever needs the contract owns it | More interfaces to navigate |
 | Producer names matched **verbatim** | The API must reflect the source data exactly | `"Michael DeLuca"` and `"Michael De Luca"` count as two people |
+| Quoted fields honoured (RFC 4180) | A spreadsheet export may wrap a value containing `;` | A hand-written splitter instead of `String.split` |
+| Two wins in one year report `interval: 0` | The specification does not cover it; grouping and pairing consecutive years is what any direct reading produces | Debatable — a same-year pair arguably is not an interval at all. Pinned by test so the reading is deliberate |
 | Only integration tests | Item 4.2 requires it — and they survived a full architectural rewrite untouched | Slower feedback; a failure points at the system, not a class |
 | Read endpoint exposed twice | Zero-friction evaluation without hiding the security work | The same resource under two URIs |
 
@@ -309,10 +311,13 @@ the decisions taken and how the result was checked:
 | 5 | Writing this README |
 | 6 | Auditing what the first commit would contain |
 | 7 | Exercising the running application against 17 scenarios |
+| 8 | Auditing every requirement against the code, and the three findings it produced |
 
-Phase 6 is the one worth reading: it caught a `.gitignore` rule that was silently
-excluding ten source files — the whole outbound adapter layer — which would have
-produced a repository that does not compile after cloning.
+Phases 6 and 8 are the ones worth reading. Phase 6 caught a `.gitignore` rule that
+was silently excluding ten source files — the whole outbound adapter layer — which
+would have produced a repository that does not compile after cloning. Phase 8 found
+that quoted CSV fields were being split mid-value, and that the producer-splitting
+regex had degraded from a whitespace class to a literal space.
 
 The log is written in Portuguese, matching the language of the assessment.
 
