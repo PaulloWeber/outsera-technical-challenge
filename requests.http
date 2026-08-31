@@ -1,0 +1,63 @@
+### 1. Issue a token as admin (stored as {{adminToken}})
+POST http://localhost:8080/auth/token
+Authorization: Basic admin passAdmin
+
+> {% client.global.set("adminToken", response.body.token); %}
+
+### 2. Issue a token as user (stored as {{userToken}})
+POST http://localhost:8080/auth/token
+Authorization: Basic user passUser
+
+> {% client.global.set("userToken", response.body.token); %}
+
+### 3. Wrong password -> 401
+POST http://localhost:8080/auth/token
+Authorization: Basic user wrong-password
+
+### 4. Assessment endpoint (public replica, no auth needed) -> 200
+GET http://localhost:8080/api/public/producers/win-intervals
+
+### 5. Secured variant without a token -> 401
+GET http://localhost:8080/api/producers/win-intervals
+
+### 6. Secured variant with any authenticated user -> 200
+GET http://localhost:8080/api/producers/win-intervals
+Authorization: Bearer {{userToken}}
+
+### 7. Import the provided CSV as admin -> 200 with summary
+POST http://localhost:8080/api/movies/import
+Authorization: Bearer {{adminToken}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="Movielist.csv"
+Content-Type: text/csv
+
+< ./src/main/resources/Movielist.csv
+--WebAppBoundary--
+
+### 8. Import as plain user -> 403 (requires ADMIN)
+POST http://localhost:8080/api/movies/import
+Authorization: Bearer {{userToken}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="Movielist.csv"
+Content-Type: text/csv
+
+< ./src/main/resources/Movielist.csv
+--WebAppBoundary--
+
+### 9. Import an invalid CSV -> 400 listing the problems
+POST http://localhost:8080/api/movies/import
+Authorization: Bearer {{adminToken}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="invalid.csv"
+Content-Type: text/csv
+
+year;title;studios;producers;winner
+2000;Movie A;Studio 1;Producer X;yes
+20XX;Movie B;Studio 1;Producer X;yes
+--WebAppBoundary--
