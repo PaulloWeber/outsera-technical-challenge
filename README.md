@@ -12,6 +12,7 @@ showcase: the business rule sits at the centre, knowing nothing about Spring, JP
 | **Database** | Embedded, in memory, seeded from CSV at startup. No external service |
 | **Tests** | 19 integration tests, no unit tests, no mocks |
 | **Third-party libraries** | None beyond Spring itself |
+| **How it was built** | Recorded phase by phase in [`docs/ai-log.md`](docs/ai-log.md) |
 
 ---
 
@@ -289,6 +290,31 @@ with no winner marked (2007), producers credited in all three separator styles, 
 where no producer ever repeats.
 
 ---
+
+## How this was built
+
+The project was built with AI assistance, and the process is recorded in
+[`docs/ai-log.md`](docs/ai-log.md) — the record required by section 5.2 of the
+assessment.
+
+The log covers seven phases, each with the prompt that started it, what came out,
+the decisions taken and how the result was checked:
+
+| Phase | Subject |
+|---|---|
+| 1 | Reading the specification and the dataset, and what the CSV forces you to handle |
+| 2 | Choosing the stack and laying out the Clean Architecture packages |
+| 3 | Implementing the requirements — including moving the calculation out of SQL |
+| 4 | Taking the signing key out of the repository without adding setup friction |
+| 5 | Writing this README |
+| 6 | Auditing what the first commit would contain |
+| 7 | Exercising the running application against 17 scenarios |
+
+Phase 6 is the one worth reading: it caught a `.gitignore` rule that was silently
+excluding ten source files — the whole outbound adapter layer — which would have
+produced a repository that does not compile after cloning.
+
+The log is written in Portuguese, matching the language of the assessment.
 
 ## Project layout
 
