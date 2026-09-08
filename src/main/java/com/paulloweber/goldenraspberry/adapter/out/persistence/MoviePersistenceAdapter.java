@@ -37,9 +37,7 @@ public class MoviePersistenceAdapter implements MovieRepositoryPort {
 
     @Override
     public List<ProducerWin> findAllWins() {
-        return movieJpaRepository.findAllWins().stream()
-                .map(win -> new ProducerWin(win.getProducer(), win.getYear()))
-                .toList();
+        return movieJpaRepository.findAllWins();
     }
 
     /** One {@link ProducerEntity} per distinct name, shared across every movie that credits them. */

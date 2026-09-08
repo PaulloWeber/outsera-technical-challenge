@@ -7,10 +7,7 @@ import com.paulloweber.goldenraspberry.domain.model.ProducerWin;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.IntSummaryStatistics;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * The single business rule of this application: given every award won, find the
@@ -22,46 +19,59 @@ import java.util.stream.Collectors;
  */
 public class AwardIntervalCalculator {
 
+    /** Sorting by producer then year puts every pair of consecutive wins side by side. */
+    private static final Comparator<ProducerWin> BY_PRODUCER_THEN_YEAR =
+            Comparator.comparing(ProducerWin::producer).thenComparingInt(ProducerWin::year);
+
+    /** Presentation order for tied producers: oldest streak first, then alphabetically. */
+    private static final Comparator<AwardInterval> BY_OLDEST_WIN =
+            Comparator.comparingInt(AwardInterval::previousWin).thenComparing(AwardInterval::producer);
+
+    /**
+     * Two passes over the wins and one over the intervals they produce.
+     *
+     * <p>Sorting once by {@code (producer, year)} makes neighbouring entries that share a
+     * producer exactly the consecutive wins we are looking for, so a single scan builds
+     * every interval and tracks both extremes at the same time. A producer who won only
+     * once never has a neighbour of their own and drops out on its own.
+     */
     public AwardIntervals calculate(Collection<ProducerWin> wins) {
-        List<AwardInterval> intervals = consecutiveIntervals(wins);
+        List<ProducerWin> ordered = new ArrayList<>(wins);
+        ordered.sort(BY_PRODUCER_THEN_YEAR);
+
+        List<AwardInterval> intervals = new ArrayList<>();
+        int shortest = Integer.MAX_VALUE;
+        int longest = Integer.MIN_VALUE;
+
+        for (int i = 1; i < ordered.size(); i++) {
+            ProducerWin earlier = ordered.get(i - 1);
+            ProducerWin later = ordered.get(i);
+            if (!earlier.producer().equals(later.producer())) {
+                continue;
+            }
+            int gap = later.year() - earlier.year();
+            intervals.add(new AwardInterval(later.producer(), gap, earlier.year(), later.year()));
+            shortest = Math.min(shortest, gap);
+            longest = Math.max(longest, gap);
+        }
+
         if (intervals.isEmpty()) {
             return AwardIntervals.empty();
         }
 
-        IntSummaryStatistics stats = intervals.stream()
-                .mapToInt(AwardInterval::interval)
-                .summaryStatistics();
-
-        return new AwardIntervals(tiesAt(intervals, stats.getMin()), tiesAt(intervals, stats.getMax()));
-    }
-
-    /**
-     * Pairs each win with the previous win of the same producer. A producer who
-     * won only once contributes no interval and disappears from the result.
-     */
-    private List<AwardInterval> consecutiveIntervals(Collection<ProducerWin> wins) {
-        Map<String, List<Integer>> yearsByProducer = wins.stream()
-                .collect(Collectors.groupingBy(ProducerWin::producer,
-                        Collectors.mapping(ProducerWin::year, Collectors.toList())));
-
-        List<AwardInterval> intervals = new ArrayList<>();
-        yearsByProducer.forEach((producer, years) -> {
-            List<Integer> sorted = years.stream().sorted().toList();
-            for (int i = 1; i < sorted.size(); i++) {
-                int previousWin = sorted.get(i - 1);
-                int followingWin = sorted.get(i);
-                intervals.add(new AwardInterval(producer, followingWin - previousWin, previousWin, followingWin));
+        List<AwardInterval> min = new ArrayList<>();
+        List<AwardInterval> max = new ArrayList<>();
+        for (AwardInterval interval : intervals) {
+            if (interval.interval() == shortest) {
+                min.add(interval);
             }
-        });
-        return intervals;
-    }
+            if (interval.interval() == longest) {
+                max.add(interval);
+            }
+        }
 
-    /** Every producer sharing the given interval, oldest win first, then alphabetically. */
-    private List<AwardInterval> tiesAt(List<AwardInterval> intervals, int interval) {
-        return intervals.stream()
-                .filter(candidate -> candidate.interval() == interval)
-                .sorted(Comparator.comparingInt(AwardInterval::previousWin)
-                        .thenComparing(AwardInterval::producer))
-                .toList();
+        min.sort(BY_OLDEST_WIN);
+        max.sort(BY_OLDEST_WIN);
+        return new AwardIntervals(min, max);
     }
 }

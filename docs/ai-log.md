@@ -485,6 +485,78 @@ correção alterou o resultado do conjunto de dados fornecido.
 
 ---
 
+## Fase 9 — Redução de passagens no cálculo
+
+### Prompt
+
+> Um code review externo apontou: "o sistema realiza 6+ loops em código para
+> chegar ao resultado". Verifique e trate.
+
+### Verificação
+
+A observação procede — e o número real era maior. Contando as passagens sobre os
+dados no caminho de leitura:
+
+| # | Onde | O quê |
+|---|---|---|
+| 1 | `MoviePersistenceAdapter` | `stream().map()` da projeção para o domínio |
+| 2 | `consecutiveIntervals` | `groupingBy` |
+| 3 | | `forEach` sobre os produtores |
+| 4 | | `sorted()` dos anos, **um por produtor** |
+| 5 | | `for` pareando dentro de cada grupo |
+| 6 | `calculate` | `summaryStatistics()` |
+| 7 | | `tiesAt(min)` — filtra e ordena |
+| 8 | | `tiesAt(max)` — filtra e ordena de novo |
+| 9-10 | `AwardIntervalsResponse` | mapeia `min` e `max` |
+
+Dez passagens. Com 42 vencedores no arquivo fornecido isso não tem efeito de
+desempenho perceptível — a questão é de clareza: o código atravessava a mesma
+coleção repetidas vezes para responder perguntas que cabem numa varredura só.
+
+### O que mudou
+
+**Uma ordenação em vez de N.** Ordenar todas as vitórias por `(produtor, ano)`
+uma única vez faz com que vizinhos que compartilham produtor sejam exatamente os
+prêmios consecutivos procurados. Some o agrupamento, somem as N ordenações por
+grupo, e o pareamento vira uma varredura linear.
+
+**Extremos apurados durante a varredura.** Menor e maior intervalo passaram a ser
+atualizados no mesmo laço que constrói os intervalos, dispensando o
+`summaryStatistics()`.
+
+**Empates coletados numa passagem só.** Um laço preenche as listas de mínimo e
+máximo ao mesmo tempo, no lugar de dois `filter` independentes.
+
+**Projeção eliminada.** A consulta JPQL passou a materializar o `record` de
+domínio diretamente, por *constructor expression*. A interface `ProducerWinView`
+deixou de existir e o adaptador virou uma delegação de uma linha.
+
+O resultado: de dez passagens para quatro — ordenar, varrer construindo
+intervalos e extremos, coletar empates, ordenar as duas listas finais (que têm
+tipicamente um ou dois elementos).
+
+### Consequência sobre os testes
+
+A nova implementação passou a usar **exatamente o algoritmo que o teste de
+recálculo independente utilizava** — ordenar por `(produtor, ano)` e varrer
+pareando vizinhos. Manter os dois iguais destruiria o valor daquele teste, que
+existe para confrontar dois caminhos distintos.
+
+O algoritmo do teste foi então trocado para o que a produção abandonou: agrupar
+por produtor e parear os anos dentro de cada balde. A verificação cruzada segue
+comparando implementações diferentes.
+
+### Validação
+
+22 testes de integração continuam verdes. Com a aplicação em execução, o arquivo
+fornecido produz os mesmos `206 movies (42 winners, 359 distinct producers)` e a
+mesma resposta — Joel Silver com 1 ano, Matthew Vaughn com 13. Os três casos de
+borda foram reconferidos e permanecem idênticos: empates múltiplos em `min` e
+`max`, listas vazias quando ninguém repete, e intervalo zero na vitória dupla do
+mesmo ano.
+
+---
+
 ## Suíte automatizada
 
 22 testes de integração, todos passando:
@@ -498,10 +570,16 @@ correção alterou o resultado do conjunto de dados fornecido.
 
 O teste mais relevante é `agreesWithAnIndependentRecalculationOfTheSourceFile`:
 ele recalcula a resposta a partir do CSV por um caminho deliberadamente
-diferente — ordenando as vitórias por `(produtor, ano)` e percorrendo a lista uma
-vez — e compara com o que a API devolveu. Se o cálculo de produção derivar, o
+diferente — agrupando as vitórias por produtor e pareando os anos dentro de cada
+balde, enquanto a produção ordena tudo por `(produtor, ano)` e faz uma varredura
+única — e compara com o que a API devolveu. Se o cálculo de produção derivar, o
 teste acusa mesmo que os valores esperados tenham sido atualizados junto.
+
+Os dois algoritmos trocaram de lado na fase 9, justamente para que continuassem
+sendo dois.
 
 Foi a existência desse caminho paralelo que tornou o achado 2 diagnosticável: ao
 comparar as duas expressões regulares, a divergência entre produção e verificação
 ficou visível.
+
+

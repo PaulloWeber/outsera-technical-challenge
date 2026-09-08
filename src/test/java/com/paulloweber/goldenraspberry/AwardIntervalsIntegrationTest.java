@@ -14,7 +14,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -79,23 +79,26 @@ class AwardIntervalsIntegrationTest extends IntegrationTestSupport {
     }
 
     /**
-     * Sorts every win by producer then year and walks the list once, pairing neighbours
-     * that belong to the same producer — a different route to the same answer than the
-     * grouping the application performs.
+     * Buckets the wins by producer and pairs the years inside each bucket — a different
+     * route to the same answer than the single sorted scan the application performs.
+     *
+     * <p>Keeping the two algorithms apart is the point: if both sides used the same one,
+     * this test would only prove the code agrees with itself.
      */
     private List<ProducerAwardInterval> recalculateFromSource(String classpathLocation) throws IOException {
-        List<Win> wins = readWins(classpathLocation);
-        wins.sort(Comparator.comparing(Win::producer).thenComparingInt(Win::year));
+        Map<String, List<Integer>> yearsByProducer = new LinkedHashMap<>();
+        for (Win win : readWins(classpathLocation)) {
+            yearsByProducer.computeIfAbsent(win.producer(), producer -> new ArrayList<>()).add(win.year());
+        }
 
         List<ProducerAwardInterval> intervals = new ArrayList<>();
-        for (int i = 1; i < wins.size(); i++) {
-            Win earlier = wins.get(i - 1);
-            Win later = wins.get(i);
-            if (earlier.producer().equals(later.producer())) {
+        yearsByProducer.forEach((producer, years) -> {
+            List<Integer> sorted = years.stream().sorted().toList();
+            for (int i = 1; i < sorted.size(); i++) {
                 intervals.add(new ProducerAwardInterval(
-                        later.producer(), later.year() - earlier.year(), earlier.year(), later.year()));
+                        producer, sorted.get(i) - sorted.get(i - 1), sorted.get(i - 1), sorted.get(i)));
             }
-        }
+        });
         return intervals;
     }
 

@@ -84,12 +84,12 @@ only `adapter/`.
 
 | Layer | Files | Lines | May import |
 |---|---:|---:|---|
-| `domain` | 6 | 134 | **nothing but `java.*`** |
+| `domain` | 6 | 144 | **nothing but `java.*`** |
 | `application` | 8 | 145 | `domain`, plus `@Service` and `@Transactional` |
-| `adapter` | 14 | 485 | `application`, `domain`, any framework |
-| `infrastructure` | 3 | 163 | `application`, Spring |
+| `adapter` | 13 | 535 | `application`, `domain`, any framework |
+| `infrastructure` | 3 | 197 | `application`, Spring |
 
-The core that matters is small — 279 lines across domain and application. Most of the code is
+The core that matters is small — 289 lines across domain and application. Most of the code is
 adapter, which is exactly what you expect once the rules are isolated from the technology.
 
 ### Where the business rule lives
@@ -128,7 +128,8 @@ The repository's job is to fetch `(producer, year)` pairs. Interpreting them is 
 1. Security filter chain: the `/api/public/**` route is `permitAll()`.
 2. `ProducerController` calls `GetAwardIntervalsUseCase` — the interface, not an implementation.
 3. The use case asks the driven port for every win.
-4. `AwardIntervalCalculator` groups, sorts, finds the extremes and collects the ties.
+4. `AwardIntervalCalculator` sorts once, then a single scan builds every interval and
+   tracks both extremes; one more pass collects the ties.
 5. `AwardIntervalsResponse.from()` maps domain objects to the HTTP contract; Jackson serialises.
 
 ---
@@ -312,6 +313,7 @@ the decisions taken and how the result was checked:
 | 6 | Auditing what the first commit would contain |
 | 7 | Exercising the running application against 17 scenarios |
 | 8 | Auditing every requirement against the code, and the three findings it produced |
+| 9 | Cutting the read path from ten passes over the data down to four |
 
 Phases 6 and 8 are the ones worth reading. Phase 6 caught a `.gitignore` rule that
 was silently excluding ten source files — the whole outbound adapter layer — which
